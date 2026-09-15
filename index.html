@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Jungsu Hwang</title>
+<meta name="description" content="Jungsu Hwang - undergraduate researcher at Korea University working on systems for machine learning inference.">
+
+<!-- Open Graph: this is what shows up when you paste the link into an email or Slack. -->
+<meta property="og:type" content="profile">
+<meta property="og:title" content="Jungsu Hwang">
+<meta property="og:description" content="Systems for machine learning inference - on phones, edge accelerators, and servers under real concurrency.">
+<meta property="og:url" content="https://jasonwayn.github.io/">
+
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<main class="wrap">
+
+  <!-- =========================================================
+       MASTHEAD
+       ========================================================= -->
+  <header class="masthead">
+    <!-- Cropped from the original by ffmpeg: crop=950:950:103:55, 512px square.
+         Softening lives in style.css (.portrait); --portrait-fade controls it. -->
+    <img class="portrait" src="assets/img/portrait.jpg" alt="Jungsu Hwang">
+
+    <div>
+      <h1>Jungsu Hwang</h1>
+      <p class="affil">
+        <span>B.S. student, Computer Science &amp; Engineering</span>
+        <span class="sep">&middot;</span>
+        <span>Korea University</span>
+      </p>
+
+      <!-- Drop the PDF at assets/CV.pdf. To show the glyph alone, delete the
+           <span>CV</span> below; the link keeps its accessible name either way. -->
+      <p class="cvline">
+        <a class="cvlink" href="assets/CV.pdf" target="_blank" rel="noopener"
+           aria-label="Curriculum vitae (PDF)">
+          <svg viewBox="0 0 16 16" width="15" height="15"
+               aria-hidden="true" focusable="false">
+            <path class="doc"  d="M9.3 1.6H4.4a1.4 1.4 0 0 0-1.4 1.4v10a1.4 1.4 0 0 0 1.4 1.4h7.2a1.4 1.4 0 0 0 1.4-1.4V5.3z"/>
+            <path class="fold" d="M9.3 1.6v3.7H13z"/>
+          </svg><span>CV</span>
+        </a>
+      </p>
+    </div>
+  </header>
+
+  <p class="lede">
+    I work on <strong>systems for machine learning inference</strong> &mdash; making models
+    efficient enough to run where they are actually used: on phones, edge accelerators, and
+    servers under real concurrency.
+  </p>
+
+
+  <!-- =========================================================
+       RESEARCH INTERESTS
+       ========================================================= -->
+  <section>
+    <h2>Research interests</h2>
+    <ul class="clean">
+      <li><strong>Efficient inference systems.</strong> How latency, memory and energy
+        trade off across the serving stack, and where reported speedups stop holding as the
+        deployment context changes.</li>
+      <li><strong>Inference on constrained hardware.</strong> Ahead-of-time compiled
+        accelerators, mobile GPUs and DSPs, and the memory and storage hierarchy underneath
+        them.</li>
+      <li><strong>Systems measurement.</strong> Building and testing hypotheses through
+        profiling and controlled experiments, especially when apparent hardware limits turn
+        out to come from runtimes, toolchains, or implementation choices.</li>
+    </ul>
+  </section>
+
+
+  <!-- =========================================================
+       RESEARCH PROJECTS - what was found. One detail page so far;
+       entries without one are self-contained.
+       ========================================================= -->
+  <section>
+    <h2>Research projects</h2>
+
+    <article class="entry">
+      <div class="meta">2026 &middot; server-class accelerator</div>
+      <h3><a href="projects/npu-static-shapes.html">Speculative decoding on a compiled accelerator</a></h3>
+      <p>
+        Speculative decoding is naturally dynamic; compiled accelerators fix tensor shapes
+        before execution. I ported the decoder to a server-class accelerator, cut round
+        latency from 96.5&nbsp;ms to 59.5&nbsp;ms, distributed it across four cards, and
+        traced a long-context accuracy collapse to a numerical defect in the compiled graph.
+        Most of what looked like a hardware limit turned out to belong to the runtime
+        instead.
+      </p>
+    </article>
+
+    <article class="entry">
+      <div class="meta">2026 &middot; Galaxy S25 &middot; mobile GPU, flash storage</div>
+      <h3><a href="projects/phone-memory.html">Memory-constrained inference on a phone</a></h3>
+      <p>
+        Under a phone's memory budget, either weights or KV cache may need to leave GPU
+        memory. I built a KV-streaming path and compared it with weight streaming on a
+        Galaxy S25: the faster choice changed with the prompt/generation mix.
+        These static runs did not impose a total-DRAM cap, so they do not yet
+        establish an eviction policy for a specified memory shortage.
+      </p>
+    </article>
+
+    <!-- Fill in the paper title and authors, then uncomment to show this entry.
+    <article class="entry">
+      <h3>Reproducing PAPER TITLE end-to-end</h3>
+      <p>
+        Reproduced AUTHORS's preprint from the released artifact on a lab server,
+        including three patches needed to make the published pipeline run.
+      </p>
+    </article>
+    -->
+  </section>
+
+
+</main>
+</body>
+</html>

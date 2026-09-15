@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Speculative decoding on a compiled accelerator</title>
+<meta name="description" content="A static-graph port of DFlash to Rebellions ATOM+: implementation, measured optimizations, four-card scaling, and a long-context correctness fix.">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+  .project-kicker { margin: 0 0 .65rem; color: var(--accent); font: .72rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
+  .project-intro { max-width: 40rem; margin: .9rem 0 0; font-size: 1.13rem; line-height: 1.5; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 2rem 0 0; }
+  .stat { padding: 1rem 0 .1rem; border-top: 2px solid var(--accent); }
+  .stat strong { display: block; font: 1.25rem var(--font-mono); letter-spacing: -.05em; color: var(--text); }
+  .stat span { display: block; margin-top: .4rem; color: var(--text-muted); font: .76rem/1.45 var(--font-sans); }
+  .section-note { color: var(--text-muted); font-size: .9rem; }
+  .flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: 1.5rem 0; }
+  .flow-step { border: 1px solid var(--rule); border-radius: 6px; padding: .8rem .85rem; background: var(--bg-raised); }
+  .flow-step b { display: block; font: .76rem var(--font-mono); color: var(--accent); }
+  .flow-step span { display: block; margin-top: .35rem; color: var(--text-muted); font: .8rem/1.45 var(--font-sans); }
+  .round-table th:first-child, .round-table td:first-child { width: 67%; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin: 1.4rem 0 .55rem; }
+  .card { min-width: 0; padding: .8rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg-raised); }
+  .card .label { display: block; margin-bottom: .7rem; color: var(--text-faint); font: .7rem var(--font-mono); }
+  .card .piece { display: block; padding: .35rem .45rem; margin-top: .35rem; border-radius: 3px; background: var(--accent-soft); color: var(--accent); font: .74rem/1.3 var(--font-sans); }
+  .card .local { background: var(--rule-soft); color: var(--text-muted); }
+  .shape-chain { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; margin: 1rem 0; padding: .7rem .8rem; background: var(--accent-soft); border-radius: 6px; font: .75rem/1.5 var(--font-sans); }
+  .shape-chain b { font-weight: 600; }
+  .shape-chain span { color: var(--text-faint); }
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: 1fr; gap: .45rem; }
+    .stat { padding-top: .7rem; }
+    .flow { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <p class="crumb"><a href="../">&larr; Jungsu Hwang</a></p>
+
+  <header class="pagehead">
+    <p class="project-kicker">Systems project / 2026</p>
+    <h1>Speculative decoding on a compiled accelerator</h1>
+    <p class="meta">DFlash &middot; Rebellions ATOM+ &middot; four-card server</p>
+    <p class="project-intro">I ported DFlash to static NPU graphs, profiled the decode loop, and tested four-card scaling. A numerical failure in compiled trigonometry caused acceptance to collapse during long generation.</p>
+    <div class="stats" aria-label="Key measured results">
+      <div class="stat"><strong>96.5 &rarr; 59.5 ms</strong><span>One-card decode round after five implementation steps</span></div>
+      <div class="stat"><strong>39.7 &rarr; 12.9 ms</strong><span>Target verification, one card versus four</span></div>
+      <div class="stat"><strong>3.44 &rarr; 8.43</strong><span>Accepted tokens per round after the long-generation RoPE fix</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>What I built</h2>
+    <p>Acceptance makes the decode loop dynamic, while this accelerator fixes graph shapes before execution. I used reusable graphs for each stage and kept both KV caches on the device.</p>
+    <div class="flow" aria-label="Static-graph decoding pipeline">
+      <div class="flow-step"><b>01 / Prefill</b><span>Target graph, 256-token chunks. Shares its cache with verification.</span></div>
+      <div class="flow-step"><b>02 / Draft</b><span>Append and block graphs alternate while sharing drafter cache.</span></div>
+      <div class="flow-step"><b>03 / Verify</b><span>Target graph checks 16 proposals plus one bonus token in a 17-token shape.</span></div>
+    </div>
+    <p class="section-note">The host commits accepted tokens and schedules the next graph; model work and cache state remain on the device.</p>
+  </section>
+
+  <section>
+    <h2>Finding the cost of one round</h2>
+    <p>The first one-card port took 96.5 ms per round. I removed redundant cache uploads, bypassed restrictive prefill checks, compiled smaller target shapes with a shared cache, and reduced hidden-state outputs.</p>
+    <div class="scroll-x">
+      <table class="round-table">
+        <thead><tr><th>Implementation stage</th><th class="num">Round latency</th></tr></thead>
+        <tbody>
+          <tr><td>Initial port</td><td class="num">96.5 ms</td></tr>
+          <tr><td>Persistent drafter cache</td><td class="num">86.5 ms</td></tr>
+          <tr><td>Unaligned prefill enabled</td><td class="num">67.3 ms</td></tr>
+          <tr><td>Shared-cache, smaller target graphs</td><td class="num">62.3 ms</td></tr>
+          <tr><td>Hidden-state outputs reduced from 37 to 6</td><td class="num win">59.5 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Reducing hidden-state outputs from 37 to 6 saved 2.8 ms per round without changing acceptance. Similar savings for small verify and large prefill outputs pointed to per-tensor overhead.</p>
+  </section>
+
+  <section>
+    <h2>What four cards accelerated</h2>
+    <div class="cards" role="img" aria-label="The target and optional output projection are sharded across cards zero through three. Drafter and append remain on card zero.">
+      <div class="card"><span class="label">CARD 0</span><span class="piece">Target &frac14;</span><span class="piece">lm_head &frac14;</span><span class="piece local">Drafter + append</span></div>
+      <div class="card"><span class="label">CARD 1</span><span class="piece">Target &frac14;</span><span class="piece">lm_head &frac14;</span></div>
+      <div class="card"><span class="label">CARD 2</span><span class="piece">Target &frac14;</span><span class="piece">lm_head &frac14;</span></div>
+      <div class="card"><span class="label">CARD 3</span><span class="piece">Target &frac14;</span><span class="piece">lm_head &frac14;</span></div>
+    </div>
+    <p class="section-note">Working TP4 configuration. Drafter TP4 aborts when the shared-cache append and block graphs alternate in this toolchain.</p>
+    <div class="scroll-x">
+      <table>
+        <thead><tr><th>Measured component</th><th class="num">Before</th><th class="num">After</th></tr></thead>
+        <tbody>
+          <tr><td>Target verify, TP1 &rarr; TP4</td><td class="num">39.7 ms</td><td class="num win">12.9 ms</td></tr>
+          <tr><td>lm_head call, TP1 &rarr; TP4</td><td class="num">4.3 ms</td><td class="num win">2.0 ms</td></tr>
+          <tr><td>Throughput with target TP4 fixed, lm_head TP1 &rarr; TP4</td><td class="num">178.62 tok/s</td><td class="num win">204.78 tok/s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Verification fell from 39.7 to 12.9 ms (3.08&times;), while the drafter and append remained on card 0. Throughput rose from 107.87 to 257.77 tok/s (2.39&times;), but acceptance also changed; verify latency better isolates sharding. With target TP4 fixed, <code>lm_head</code> sharding added 14.6% throughput in repeated A/B runs. A block-only drafter TP4 probe saved 3.2 ms, which remains inaccessible in the tested loop.</p>
+    <p class="section-note">Verify: 20-sample gsm8k TP1/TP4 runs; acceptance differs, so this is a component comparison. <code>lm_head</code>: two five-sample runs per setting, short generation, with target TP4 fixed.</p>
+  </section>
+
+  <section>
+    <h2>The correctness bug behind falling acceptance</h2>
+    <p>Holding cache length fixed while changing only position reproduced the long-generation acceptance failure. Minimal <code>sin</code>/<code>cos</code> graphs showed maximum error of 1.67 for angles below 4096, enough to corrupt rotary encoding.</p>
+    <p>I reduced the RoPE angle modulo 2&pi; on the host and kept trigonometry in the compiled graph. This restored drafter output agreement without the slowdown of calculating sine and cosine on the host.</p>
+    <div class="scroll-x">
+      <table>
+        <thead><tr><th>gsm8k, long generation</th><th class="num">Before</th><th class="num">After</th></tr></thead>
+        <tbody>
+          <tr><td>Accepted tokens per round (&tau;)</td><td class="num">3.441</td><td class="num win">8.428</td></tr>
+          <tr><td>Decode throughput</td><td class="num">110.21 tok/s</td><td class="num win">301.00 tok/s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="section-note">Paired five-sample gsm8k test, MAXNEW=2048, target TP4, separate corrected drafter variant. Both generated about 594 tokens per sample.</p>
+  </section>
+
+  <section>
+    <h2>What fixed shapes still require</h2>
+    <p>Three decoder assumptions do not map naturally onto the fixed-shape runtime used here: growing KV caches, different acceptance counts across requests, and control flow that branches on acceptance. An unboundedly growing drafter context does not port directly to this execution model.</p>
+    <div class="shape-chain" aria-label="Fixed shape leads to context selection"><b>fixed shape</b><span>&rarr;</span><b>fixed context budget</b><span>&rarr;</span><b>context exceeds budget</b><span>&rarr;</span><b>select tokens</b></div>
+    <p>I tested bounded-context selection, append width, and host scoring. Busy-waiting CPU threads distorted early NPU measurements; passive waiting, avoiding GQA key copies, and reusing scoring storage removed that bottleneck.</p>
+    <p>On a five-sample, 16K-token pg19 test, selection reached 29.31 tok/s versus 28.62 tok/s for the plain decoder. Repeated scoring added cost without improving acceptance in this DFlash setting; these results do not establish a general long-context speedup.</p>
+  </section>
+
+  <footer><span><a href="../">&larr; Back to home</a></span><span>Jungsu Hwang</span></footer>
+</main>
+</body>
+</html>
