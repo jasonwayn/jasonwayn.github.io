@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>Memory-constrained inference on a phone</title>
-<meta name="description" content="A focused Galaxy S25 comparison of target-model weight and KV streaming at similar GPU memory savings.">
+<meta name="description" content="A Galaxy S25 study of weight and K/V cache streaming for memory-constrained on-device language-model inference.">
 <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body>
@@ -23,15 +23,12 @@
     <h2>The question</h2>
     <p class="lede">
       When a foreground app reduces the memory available to a background LLM, which
-      part of its target model should leave GPU memory: weights or the K/V cache?
-      Both can be streamed from flash, but the cost that remains on the model's
-      critical path depends on when each layer needs its data.
+      part of the target model should leave GPU memory: model weights or the K/V cache?
     </p>
     <p>
-      I compared two fixed offload selections on a Galaxy S25. They saved nearly the
-      same amount of GPU allocation, yet their relative speed changed with the balance
-      between prompt processing and token generation. These measurements are a
-      controlled starting point, not a dynamic eviction policy.
+      Both can be backed by flash storage, but their costs appear at different points
+      in inference. I implemented both paths on a Galaxy S25 and compared fixed
+      offload configurations with approximately the same reduction in GPU allocation.
     </p>
   </section>
 
@@ -39,130 +36,44 @@
   <section id="streaming-comparison">
     <h2>Weight versus KV streaming</h2>
     <p>
-      Weight streaming drops read-only GPU copies of selected layers and rereads their
-      tensors from a warm <code>O_DIRECT</code> cache. KV streaming instead writes dirty
-      K/V pairs to an <code>O_DIRECT</code> backing file and prefetches their valid
-      contents before those layers compute. Unlike weights, KV must pay for writeback;
-      unlike a full weight tensor, its valid contents grow with context length. Both
-      paths try to overlap flash traffic with other target-layer computation.
+      I implemented separate flash-backed streaming paths for model weights and the
+      K/V cache. The two forms of state have different access patterns: weights are
+      read-only and reused across requests, while the K/V cache is mutable and grows
+      during generation. I/O was overlapped with computation where possible.
     </p>
-    <figure class="scroll-x">
-      <img src="../assets/img/mobile-memory-data-path-v2.svg" width="920" height="700"
-           style="min-width: 640px" loading="lazy" decoding="async"
-           alt="S25 UMA streaming paths: read-only weights go from a UFS file through DRAM staging to the GPU-held copy; dirty KV is snapshotted from the mapped DRAM pool and written to a UFS backing file, then refilled directly into that mapped pool.">
-      <figcaption>
-        Conceptual S25 UMA paths, matched to this implementation. GPU-held buffers
-        consume shared DRAM. Releasing weights does not write them to UFS; KV
-        writeback uses a dirty-range snapshot and refill reads directly into the
-        mapped pool. A device-level UFS cache tier is omitted until measured.
-      </figcaption>
-    </figure>
     <p>
-      On Qwen3-4B-Q4_0 with a DFlash drafter and 8K configured context, I streamed
-      11 distributed weight layers; the KV arm streamed 16 distributed K/V layer
-      pairs through a 96&nbsp;MiB GPU pool. In the repeated 3.5K-prompt runs,
-      those choices saved approximately 425 and 420&nbsp;MiB of
-      <em>KGSL GPU allocation</em>,
-      respectively. The selection was static; no memory-shortage value was supplied
-      to the runtime.
+      Experiments used Qwen3-4B-Q4_0 with a DFlash drafter. The weight- and
+      KV-streaming configurations each reduced GPU allocation by roughly
+      420&nbsp;MiB. The selections were fixed throughout each run; this experiment
+      does not yet implement a dynamic eviction policy.
     </p>
-    <p class="small muted">
-      Workloads: a 3,528-token technical input on transformers and speculative
-      decoding, summarized in exactly three sentences (65 output tokens); and a
-      2,049-token input on the same topic, answered as a 12-section explanation
-      capped at 192 tokens. Both used temperature 0; prompt length and requested
-      response format changed together.
-    </p>
-
-    <figure class="scroll-x">
-      <svg viewBox="0 0 720 270" role="img" style="min-width: 640px"
-           aria-label="Full request time split into prefill and decode. For 3528 prompt and 65 output tokens, weight takes 44.49 seconds and KV 46.54 seconds. For 2049 prompt and 192 output tokens, weight takes 59.72 seconds and KV 58.81 seconds.">
-        <style>
-          .plot-title { font: 11px ui-sans-serif, system-ui, sans-serif; fill: var(--text); }
-          .plot-label { font: 10.5px ui-monospace, monospace; fill: var(--text-muted); }
-          .plot-value { font: 11px ui-monospace, monospace; fill: var(--text); }
-          .plot-pre { fill: var(--text-faint); opacity: .48; }
-          .plot-dec { fill: var(--accent); opacity: .85; }
-          .plot-rule { stroke: var(--rule); stroke-width: 1; }
-        </style>
-        <text class="plot-title" x="20" y="27">Prompt processing + generation, seconds</text>
-        <rect class="plot-pre" x="405" y="17" width="11" height="11" rx="2"/>
-        <text class="plot-label" x="422" y="27">prefill</text>
-        <rect class="plot-dec" x="490" y="17" width="11" height="11" rx="2"/>
-        <text class="plot-label" x="507" y="27">decode</text>
-
-        <text class="plot-label" x="20" y="64">3,528 prompt / 65 output</text>
-        <text class="plot-label" x="20" y="92">weight 11</text>
-        <rect class="plot-pre" x="190" y="76" width="173.2" height="22" rx="2"/>
-        <rect class="plot-dec" x="363.2" y="76" width="138.2" height="22" rx="2"/>
-        <text class="plot-value" x="512" y="92">44.49</text>
-        <text class="plot-label" x="20" y="124">KV 16 pairs</text>
-        <rect class="plot-pre" x="190" y="108" width="190.4" height="22" rx="2"/>
-        <rect class="plot-dec" x="380.4" y="108" width="135.4" height="22" rx="2"/>
-        <text class="plot-value" x="526" y="124">46.54</text>
-
-        <line class="plot-rule" x1="20" y1="150" x2="700" y2="150"/>
-        <text class="plot-label" x="20" y="176">2,049 prompt / 192 output</text>
-        <text class="plot-label" x="20" y="204">weight 11</text>
-        <rect class="plot-pre" x="190" y="188" width="85.8" height="22" rx="2"/>
-        <rect class="plot-dec" x="275.8" y="188" width="332.2" height="22" rx="2"/>
-        <text class="plot-value" x="619" y="204">59.72</text>
-        <text class="plot-label" x="20" y="236">KV 16 pairs</text>
-        <rect class="plot-pre" x="190" y="220" width="74.8" height="22" rx="2"/>
-        <rect class="plot-dec" x="264.8" y="220" width="336.9" height="22" rx="2"/>
-        <text class="plot-value" x="613" y="236">58.81</text>
-        <text class="plot-label" x="190" y="260">Same horizontal scale for all four arms.</text>
-      </svg>
-      <figcaption>
-        Full model time split into prompt processing (grey) and generation (blue).
-        The 3.5K-prompt bars average two runs per arm; the 2K-prompt bars show
-        one run per arm. Both arms produced identical output within each workload.
-      </figcaption>
-    </figure>
-
     <p>
-      In the 3.5K-prompt case, KV's 0.41&nbsp;s decode gain was outweighed
-      by a 2.45&nbsp;s prefill loss, so weight won the full request. In the
-      2K-prompt case, KV's 1.57&nbsp;s prefill gain outweighed a 0.67&nbsp;s
-      decode loss, so KV edged ahead. The latter had a <em>shorter</em>
-      prompt, not a longer context: this is a workload-dependent observation,
-      not evidence that long context favors KV.
+      Across two workloads with different prompt and generation balances, neither
+      option consistently dominated. Weight streaming performed better on the
+      workload dominated by prompt processing, while KV streaming was slightly
+      faster on the other workload.
+    </p>
+    <p>
+      Breaking the requests into prompt processing and generation showed why: the
+      two streaming choices shifted costs between different phases of inference.
+      This suggests that deciding what to evict should depend not only on how much
+      memory must be reclaimed, but also on the expected structure of the request
+      and when the evicted state returns to the critical path.
+    </p>
+    <p>
+      These measurements are a controlled starting point toward such a policy,
+      rather than evidence for a universal preference for either weights or KV.
     </p>
   </section>
 
   <!-- ================================================================= -->
   <section>
-    <h2>To do next</h2>
+    <h2>Ongoing work</h2>
     <p>
-      These runs matched GPU allocation, not an enforced whole-DRAM shortage.
-      The current event simulator also misses the observed weight-versus-KV
-      winners. The next goal is a calibrated model, rather than exhaustive
-      on-device measurements across every memory budget.
+      The current comparison uses fixed configurations under controlled conditions.
+      I am extending it toward a calibrated policy that can choose between weight,
+      KV and mixed streaming as available memory and workload behavior change.
     </p>
-    <ol>
-      <li>
-        <strong>Map UFS cache and sustained I/O.</strong> Write cumulative,
-        aligned <code>O_DIRECT</code> data to distinct extents at realistic KV
-        sizes, then measure refill reads. Locate any fast-write-buffer knee,
-        tail-latency jump and recovery after idle; test mixed reads/writes,
-        temperature and free-space effects. Do not assume one fixed cache size
-        or infer it from short-run medians.
-      </li>
-      <li>
-        <strong>Trace the actual overlap.</strong> Timestamp target-layer
-        compute, weight read and GPU upload, KV dirty-write and refill
-        enqueue/completion, prefetch readiness and demand waits. Collect these
-        timelines for both prefill batches and speculative verification at a
-        few context lengths and verification widths.
-      </li>
-      <li>
-        <strong>Validate, then select.</strong> Freeze the model and test a
-        small set of unseen natural prompts, static memory budgets and
-        weight/KV/mixed selections. Compare predicted prefill, decode,
-        exposed stalls and the winning policy. Add foreground I/O and thermal
-        contention before using it as a dynamic eviction rule.
-      </li>
-    </ol>
   </section>
 
   <!-- Add a public code link here once the repo is public:
